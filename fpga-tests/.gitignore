@@ -1,0 +1,5 @@
+traces/
+sim_build/
+builds/
+results/raw/
+__pycache__/

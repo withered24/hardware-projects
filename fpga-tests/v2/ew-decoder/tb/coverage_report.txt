@@ -1,0 +1,8 @@
+Weight-decoder functional coverage (merged over every test of each build)
+
+L16_b3_tb0: L=16 b=3 tile_base=False: 157/157 bins hit (100.0%)
+L4_b3_tb0: L=4 b=3 tile_base=False: 61/61 bins hit (100.0%)
+L8_b2_tb0: L=8 b=2 tile_base=False: 57/57 bins hit (100.0%)
+L8_b3_tb0: L=8 b=3 tile_base=False: 89/89 bins hit (100.0%)
+L8_b3_tb1: L=8 b=3 tile_base=True: 24/24 bins hit (100.0%)
+L8_b4_tb0: L=8 b=4 tile_base=False: 153/153 bins hit (100.0%)
