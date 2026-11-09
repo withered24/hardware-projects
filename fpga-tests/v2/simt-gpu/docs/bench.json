@@ -1,0 +1,38 @@
+{
+  "cpu_vecadd": {
+    "cycles": 11276,
+    "instructions": 9226
+  },
+  "cpu_collatz": {
+    "cycles": 169998,
+    "instructions": 108212
+  },
+  "gpu2_vecadd": {
+    "cycles": 1906,
+    "warp_instrs": 2560,
+    "thread_instrs": 20480,
+    "mem_lines": 896,
+    "simd_efficiency": 1.0
+  },
+  "gpu2_collatz": {
+    "cycles": 21277,
+    "warp_instrs": 35025,
+    "thread_instrs": 111019,
+    "mem_lines": 160,
+    "simd_efficiency": 0.396
+  },
+  "gpu8_vecadd": {
+    "cycles": 2562,
+    "warp_instrs": 2560,
+    "thread_instrs": 20480,
+    "mem_lines": 896,
+    "simd_efficiency": 1.0
+  },
+  "gpu8_collatz": {
+    "cycles": 21398,
+    "warp_instrs": 35025,
+    "thread_instrs": 111019,
+    "mem_lines": 160,
+    "simd_efficiency": 0.396
+  }
+}

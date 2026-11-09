@@ -69,7 +69,8 @@ def main():
             return self.r.test(**kw)
 
     R.get_runner = Wrap
-    os.environ.update(s.get("env", {}))
+    for k, v in s.get("env", {}).items():       # suite defaults; the shell can override
+        os.environ.setdefault(k, v)
     os.environ["SIM_BUILD_ROOT"] = str(FT / "sim_build" / name)
     os.chdir(repo)
     rc = pytest.main(["-x", "-q", "-p", "no:cacheprovider", *(sel or s["tests"])])

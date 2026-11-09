@@ -14,9 +14,16 @@ A pass means the design in FPGA fabric produced exactly the outputs the simulato
 Requirements: Python 3.12, `cocotb==2.1.*`, pytest, numpy, Icarus Verilog 12+ and Yosys with the slang plugin. OSS CAD Suite provides both. Add the RISC-V GCC (`riscv-none-elf-gcc`, `-march=rv32i_zicsr_zifencei`) for `riscv_rvtests`, and the systolic/engine SoC programs if you build them.
 
 ```bash
+git submodule update --init --recursive                   # riscv-tests (riscv_rvtests suite)
 python fpga-tests/tools/record.py <suite>                 # every test the suite lists
 python fpga-tests/tools/record.py gpu_v2 tb/test_gpu.py   # or pytest selectors
+RAND_PROGRAMS=1000 python fpga-tests/tools/record.py riscv   # shell env overrides suite defaults
+COCOTB_TEST_FILTER='test_vecadd' python ...               # a subset of cocotb tests
 ```
+
+On Windows, put OSS CAD Suite's `bin` and `lib` ahead of the RISC-V GCC on PATH. The other way round, Yosys loads the GCC's DLLs and fails with no message.
+
+Traces are small. On 2026-11-09, 100 random CPU programs came to about 40k cycles, the GPU v2 benchmark kernels to 30k cycles, and the riscv-tests to under 1k cycles per test.
 
 Suites are listed in `tools/suites.py`. Each suite is one bitstream: a DUT top, its parameters, and the simulator builds that use exactly that configuration.
 
