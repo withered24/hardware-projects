@@ -9,6 +9,41 @@ There are two halves:
 
 A pass means the design in FPGA fabric produced exactly the outputs the simulator did, for every recorded cycle where the simulator had no X.
 
+## Task for the agent with the board
+
+Start here. The sections below have the details for each step.
+
+**Setup.** Clone with submodules (the riscv-tests suite needs them) and check out this branch:
+
+```bash
+git clone --recurse-submodules -b fpga-tests https://github.com/withered24/hardware-projects.git
+```
+
+Work on a new branch (fork if you lack push access) and open a PR into `fpga-tests`. Don't target `main`, and don't change any RTL outside `fpga-tests/`.
+
+1. **Record.** Install OSS CAD Suite (Icarus, plus Yosys with slang), Python 3.12, cocotb 2.1, pytest, numpy and RISC-V GCC (`riscv-none-elf-gcc`). On Windows, put OSS CAD Suite's `bin`/`lib` ahead of the RISC-V GCC on PATH. Run `python fpga-tests/tools/record.py <suite>` for every suite in `tools/suites.py`: `riscv`, `riscv_rvtests`, `systolic_array`, `accel_axil`, `gpu_v1`, `gpu_v2`, `ew_v1`, `ew_v2`. Run `riscv` with `RAND_PROGRAMS=1000`. The tests must still pass. Report the cycle count per trace. Don't commit traces.
+2. **Build the replay harness** as the [Replay](#replay-to-implement) section describes:
+   - a Quartus top generated from `traces/<suite>/ports.json`
+   - stimulus and response block RAMs loaded over JTAG
+   - a gated DUT clock (one edge per stimulus entry, state held between chunks)
+   - multicycle constraints
+   - a host script that compares outputs under the X-mask and reports the first mismatch (cycle, port, both values)
+
+   Prove the harness first: a loopback DUT must replay perfectly, and an injected bit flip must be caught at the right cycle. Commit everything under `fpga-tests/fpga/` with a one-command flow per suite.
+3. **FPGA-only adaptations.** Make only the ones [listed below](#fpga-only-adaptations), each as a patch in `fpga-tests/patches/` with its reason. Port behaviour must stay cycle-identical. Build v2 with `` `define SYNTHESIS `` and never `SKY130_SRAM`.
+4. **Run every suite to completion on the board.** If a suite mismatches, don't patch it away. Save the failing cycle, the ports involved and the trace. Check whether the simulator agrees with itself on a rerun, then report.
+5. **Native at-speed runs.** Run the systolic-accel SoC (`test_gemm`, `mnist`) and the ew-decoder SoC (`tb_soc` with the CPU driver), self-checking. Sweep the clock with a PLL (12.5, 25, 50, 75, 100 MHz, …) and record the highest frequency that passes.
+6. **Report** in `fpga-tests/RESULTS.md`. Include:
+   - per suite: cycles replayed, pass/fail and the first mismatch if any
+   - LEs, registers, M9K blocks and multipliers
+   - TimeQuest fmax at the Slow 1200 mV 85 °C and 0 °C models, with the critical path
+   - the native-run results
+   - anything you couldn't run, with the reason
+
+   Commit logs under `fpga-tests/results/`.
+
+Rough cost: the traces are small (see below), so replay on the board takes minutes. Most of the time goes into building the harness and the 8 Quartus compiles.
+
 ## Record
 
 Requirements: Python 3.12, `cocotb==2.1.*`, pytest, numpy, Icarus Verilog 12+ and Yosys with the slang plugin. OSS CAD Suite provides both. Add the RISC-V GCC (`riscv-none-elf-gcc`, `-march=rv32i_zicsr_zifencei`) for `riscv_rvtests`, and the systolic/engine SoC programs if you build them.
