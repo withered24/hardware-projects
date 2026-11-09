@@ -37,7 +37,7 @@ SUITES = {
         tests=["tb/test_core.py", "tb/test_pipeline.py", "tb/test_random.py"]),
     # The same core built with RESET_PC = 0x8000_0000 for the official riscv-tests (rv32ui etc.).
     "riscv_rvtests": dict(
-        repo=ROOT / "riscv-core", top="core", params={"RESET_PC": 0x8000_0000}, sources=CORE_RTL,
+        repo=ROOT / "riscv-core", top="core", params={"RESET_PC": "32'h80000000"}, sources=CORE_RTL,
         dut="u_core", patch="riscv", builds=r"tb_top_rvtests_(pipeline|wait)",
         env={"REGRESS_CORES": "pipeline,wait"}, tests=["tb/test_riscv_tests.py"]),
     "systolic_array": dict(
