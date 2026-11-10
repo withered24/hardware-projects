@@ -1,0 +1,97 @@
+--- simt-gpu/rtl/gpu_top.sv
++++ patches/gpu_v1/rtl/gpu_top.sv
+@@ -1,4 +1,6 @@
+-// gpu_top.sv — the whole GPU: block dispatcher, NUM_CORES SIMT cores, memory
++// gpu_top.sv: FPGA-only copy of rtl/gpu_top.sv (fpga-tests/patches/; diff in gpu_top.sv.diff)
++//
++// The whole GPU: block dispatcher, NUM_CORES SIMT cores, memory
+ //
+ // Launching a kernel works like CUDA's kernel<<<grid_dim, block_dim>>>(args):
+ // the host loads the code into instruction memory and the inputs into
+@@ -45,24 +47,35 @@
+     output logic [31:0] cycles,
+     output logic [31:0] warp_instrs,
+     output logic [31:0] thread_instrs,
+-    output logic [31:0] mem_lines
++    output logic [31:0] mem_lines,
++
++    // FPGA harness: base clock and phase for gpu_mem's block RAMs
++    input  logic        fpga_fclk,
++    input  logic [3:0]  fpga_ph
+ );
+ 
+     localparam int IMEM_BITS = $clog2(IMEM_WORDS);
+ 
+     // ---------------------------------------------------------------- instruction memory
+-    // One copy of the code, one read port per core.
+-    logic [31:0] imem [IMEM_WORDS];
+-    logic [NUM_CORES-1:0][31:0] c_imem_rdata;
++    // One copy of the code per core (FPGA: a block RAM has one read port, so
++    // each core gets its own simple dual-port copy, all written together).
++    // Read-old-data on a same-edge write, as in the original.
++    wire  [NUM_CORES-1:0][31:0] c_imem_rdata;
+     wire  [NUM_CORES-1:0][31:0] c_imem_addr;
+ 
+-    always_ff @(posedge clk)
+-        if (imem_we) imem[imem_addr[2 +: IMEM_BITS]] <= imem_wdata;
+-
+-    for (genvar c = 0; c < NUM_CORES; c++) begin : iport
+-        wire [31:0] a = c_imem_addr[c];
+-        always @(posedge clk) c_imem_rdata[c] <= imem[a[2 +: IMEM_BITS]];
+-    end
++    genvar gc;
++    generate
++        for (gc = 0; gc < NUM_CORES; gc++) begin : iport
++            logic [31:0] im [IMEM_WORDS];
++            logic [31:0] q;
++            wire  [31:0] a = c_imem_addr[gc];
++            always @(posedge clk) begin
++                if (imem_we) im[imem_addr[2 +: IMEM_BITS]] <= imem_wdata;
++                q <= im[a[2 +: IMEM_BITS]];
++            end
++            assign c_imem_rdata[gc] = q;
++        end
++    endgenerate
+ 
+     // ---------------------------------------------------------------- dispatcher
+     logic [31:0] k_pc, k_grid, k_block, k_args, next_block;
+@@ -123,18 +136,21 @@
+     wire  [NUM_CORES-1:0][LINE_BYTES-1:0]  m_req_be;
+     logic [LINE_BITS-1:0]                  m_resp_rdata;
+ 
+-    for (genvar c = 0; c < NUM_CORES; c++) begin : core
++    generate
++    for (gc = 0; gc < NUM_CORES; gc++) begin : core
+         simt_core u_core (
+             .clk(clk), .rst(rst),
+-            .launch(c_launch[c]), .launch_pc(k_pc), .launch_block(next_block),
+-            .block_dim(k_block), .grid_dim(k_grid), .args(k_args), .idle(c_idle[c]),
+-            .imem_addr(c_imem_addr[c]), .imem_rdata(c_imem_rdata[c]),
+-            .mem_req_valid(m_req_valid[c]), .mem_req_ready(m_req_ready[c]), .mem_req_we(m_req_we[c]),
+-            .mem_req_line(m_req_line[c]), .mem_req_wdata(m_req_wdata[c]), .mem_req_be(m_req_be[c]),
+-            .mem_resp_valid(m_resp_valid[c]), .mem_resp_rdata(m_resp_rdata),
+-            .issue(c_issue[c]), .issue_threads(c_threads[c]), .error(c_error[c])
++            .launch(c_launch[gc]), .launch_pc(k_pc), .launch_block(next_block),
++            .block_dim(k_block), .grid_dim(k_grid), .args(k_args), .idle(c_idle[gc]),
++            .imem_addr(c_imem_addr[gc]), .imem_rdata(c_imem_rdata[gc]),
++            .mem_req_valid(m_req_valid[gc]), .mem_req_ready(m_req_ready[gc]), .mem_req_we(m_req_we[gc]),
++            .mem_req_line(m_req_line[gc]), .mem_req_wdata(m_req_wdata[gc]), .mem_req_be(m_req_be[gc]),
++            .mem_resp_valid(m_resp_valid[gc]), .mem_resp_rdata(m_resp_rdata),
++            .issue(c_issue[gc]), .issue_threads(c_threads[gc]), .error(c_error[gc]),
++            .fpga_fclk(fpga_fclk), .fpga_ph(fpga_ph)
+         );
+     end
++    endgenerate
+ 
+     gpu_mem #(.LATENCY(MEM_LATENCY)) u_mem (
+         .clk(clk), .rst(rst),
+@@ -142,7 +158,8 @@
+         .req_line(m_req_line), .req_wdata(m_req_wdata), .req_be(m_req_be),
+         .resp_valid(m_resp_valid), .resp_rdata(m_resp_rdata),
+         .host_we(dmem_we), .host_addr(dmem_addr), .host_wdata(dmem_wdata), .host_rdata(dmem_rdata),
+-        .transaction(transaction)
++        .transaction(transaction),
++        .fpga_fclk(fpga_fclk), .fpga_ph(fpga_ph)
+     );
+ 
+ endmodule

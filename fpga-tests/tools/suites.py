@@ -66,3 +66,37 @@ SUITES = {
         sources=EW_V2_RTL, dut="u_dut", builds=r"top_l8_b3_sram",
         tests=["tb/test_top.py::test_top_sram"]),
 }
+
+# FPGA-only patches: patches/<dir>/<path relative to the suite's repo>
+# replaces that source file in the FPGA build (never in simulation
+# recording); patches/<dir>/extra/*.sv are added before the RTL. Every
+# patched file has a .diff beside it explaining the change.
+PATCHES = Path(__file__).resolve().parents[1] / "patches"
+PATCH_DIRS = {"riscv": "riscv", "riscv_rvtests": "riscv", "gpu_v1": "gpu_v1", "gpu_v2": "gpu_v2"}
+
+
+def sources_for(name: str, patched: bool = True) -> list[Path]:
+    s = SUITES[name]
+    pd = PATCHES / PATCH_DIRS.get(name, "_none")
+    out = []
+    if patched and (pd / "extra").is_dir():
+        out += sorted((pd / "extra").glob("*.sv"))
+    for rel in s["sources"]:
+        p = pd / rel
+        out.append(p if patched and p.exists() else Path(s["repo"]) / rel)
+    return out
+
+# FPGA build settings per suite. aw: trace RAM depth 2**aw entries per chunk
+# (bounded by M9K blocks: 2**aw/256 blocks per 32-bit RAM). sideband: extra
+# DUT inputs logged by fpga_rec after the ports (see patches/). harness_ports:
+# extra DUT ports of an FPGA-patched DUT, wired to harness signals.
+FPGA = {
+    "riscv":          dict(aw=12, sideband=["rf_clear"]),
+    "riscv_rvtests":  dict(aw=12, sideband=["rf_clear"]),
+    "systolic_array": dict(aw=10),
+    "accel_axil":     dict(aw=12),
+    "gpu_v1":         dict(aw=11, harness_ports={"fpga_fclk": "clk", "fpga_ph": "ph"}),
+    "gpu_v2":         dict(aw=11, harness_ports={"fpga_fclk": "clk", "fpga_ph": "ph"}),
+    "ew_v1":          dict(aw=11),
+    "ew_v2":          dict(aw=10),
+}

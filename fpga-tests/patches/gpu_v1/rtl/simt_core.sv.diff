@@ -1,0 +1,127 @@
+--- simt-gpu/rtl/simt_core.sv
++++ patches/gpu_v1/rtl/simt_core.sv
+@@ -1,4 +1,6 @@
+-// simt_core.sv — one SIMT core: WARPS warps of LANES threads, one front end
++// simt_core.sv: FPGA-only copy of rtl/simt_core.sv (fpga-tests/patches/; diff in simt_core.sv.diff)
++//
++// One SIMT core: WARPS warps of LANES threads, one front end
+ //
+ // What makes this a GPU core and not WARPS*LANES little CPUs: there is ONE
+ // fetch, ONE decoder and ONE scheduler, shared by every thread. Each cycle
+@@ -62,7 +64,11 @@
+     // performance and status
+     output logic                  issue,          // a warp instruction was fetched
+     output logic [LANE_BITS:0]    issue_threads,  // ...for this many threads
+-    output logic                  error           // sticky
++    output logic                  error,          // sticky
++
++    // FPGA harness: base clock and phase for the register files' block RAMs
++    input  logic                  fpga_fclk,
++    input  logic [3:0]            fpga_ph
+ );
+ 
+     localparam int NT = WARPS * LANES;
+@@ -75,12 +81,8 @@
+     logic [31:0]          block_id, ntid, nctaid, kargs;
+ 
+     // One register file per lane, holding that lane's 32 registers for each
+-    // warp: entry (lane*WARPS + warp)*32 + reg. x0 is never written.
+-    logic [31:0] rf [LANES * WARPS * 32];
+-
+-    function automatic int ridx(input int lane, input int warp, input int r);
+-        return (lane * WARPS + warp) * 32 + r;
+-    endfunction
++    // warp at {warp, reg}. x0 is never written. FPGA: block RAM, see "register
++    // files" below.
+ 
+     assign idle = !running;
+ 
+@@ -170,12 +172,7 @@
+     assign d_rs1 = d_instr[19:15];
+     assign d_rs2 = d_instr[24:20];
+ 
+-    logic [LANES-1:0][31:0] d_rs1v, d_rs2v;
+-    always_comb
+-        for (int l = 0; l < LANES; l++) begin
+-            d_rs1v[l] = d_rs1 == 5'd0 ? 32'd0 : rf[ridx(l, d_warp, d_rs1)];
+-            d_rs2v[l] = d_rs2 == 5'd0 ? 32'd0 : rf[ridx(l, d_warp, d_rs2)];
+-        end
++    logic [LANES-1:0][31:0] d_rs1v, d_rs2v;     // driven by the register files below
+ 
+     logic                   x_valid, x_reg_write, x_b_imm, x_mem_read, x_mem_write;
+     logic                   x_branch, x_jal, x_jalr, x_ecall, x_bad, x_mul;
+@@ -280,14 +277,7 @@
+     always_ff @(posedge clk) begin
+         if (x_valid && !x_mem && !x_exit)
+             for (int l = 0; l < LANES; l++)
+-                if (x_mask[l]) begin
+-                    if (x_reg_write && x_rd != 5'd0) rf[ridx(l, x_warp, x_rd)] <= x_wdata[l];
+-                    pc[x_warp*LANES + l] <= x_next[l];
+-                end
+-
+-        if (lsu_wb_valid && lsu_wb_rd != 5'd0)
+-            for (int l = 0; l < LANES; l++)
+-                if (lsu_wb_mask[l]) rf[ridx(l, lsu_wb_warp, lsu_wb_rd)] <= lsu_wb_data[l];
++                if (x_mask[l]) pc[x_warp*LANES + l] <= x_next[l];
+ 
+         if (lsu_done_valid)
+             for (int l = 0; l < LANES; l++)
+@@ -321,4 +311,58 @@
+         end
+     end
+ 
++    // ---------------------------------------------------------------- register files
++    // FPGA adaptation. The original register file is an array read
++    // combinationally (rs1 and rs2 of every lane, in D) and written at the
++    // DUT edge by two writers (X's result, the LSU's load data; different
++    // warps). Here each lane's file is a true dual-port block RAM clocked by
++    // the harness base clock `fpga_fclk` (8 base cycles per DUT cycle, phase
++    // `fpga_ph`; the DUT edge E7 ends phase 7):
++    //   E7     capture both writers' enables, addresses and data
++    //   ph 0   port A writes X's result     ph 1   port B writes the LSU's
++    //   ph 4   port A reads rs1, port B rs2  E5     hold them until next E5
++    // so D's reads see every write of earlier DUT edges, as before. While
++    // the harness is idle the phase stays 0 and port A repeats its last write.
++    localparam int RA = WARP_BITS + 5;
++    logic [LANES-1:0]       w1_en, w2_en;
++    logic [RA-1:0]          w1_a, w2_a;
++    logic [LANES-1:0][31:0] w1_d, w2_d, q1, q2, rs1_r, rs2_r;
++
++    initial begin
++        w1_en = '0; w2_en = '0; w1_a = '0; w2_a = '0; w1_d = '0; w2_d = '0; rs1_r = '0; rs2_r = '0;
++    end
++
++    always_ff @(posedge fpga_fclk) begin
++        if (fpga_ph == 4'd7) begin
++            for (int l = 0; l < LANES; l++) begin
++                w1_en[l] <= x_valid && !x_mem && !x_exit && x_mask[l] && x_reg_write && x_rd != 5'd0;
++                w2_en[l] <= lsu_wb_valid && lsu_wb_rd != 5'd0 && lsu_wb_mask[l];
++            end
++            w1_a <= {x_warp, x_rd};
++            w2_a <= {lsu_wb_warp, lsu_wb_rd};
++            w1_d <= x_wdata;
++            w2_d <= lsu_wb_data;
++        end
++        if (fpga_ph == 4'd5) begin
++            rs1_r <= q1;
++            rs2_r <= q2;
++        end
++    end
++
++    genvar gl;
++    generate
++        for (gl = 0; gl < LANES; gl++) begin : lane_rf
++            fpga_tdp_ram #(.DW(32), .AW(RA)) u_rf (
++                .clk(fpga_fclk),
++                .we_a(fpga_ph == 4'd0 && w1_en[gl]),
++                .addr_a(fpga_ph == 4'd0 ? w1_a : {d_warp, d_rs1}),
++                .wdata_a(w1_d[gl]), .q_a(q1[gl]),
++                .we_b(fpga_ph == 4'd1 && w2_en[gl]),
++                .addr_b(fpga_ph == 4'd1 ? w2_a : {d_warp, d_rs2}),
++                .wdata_b(w2_d[gl]), .q_b(q2[gl]));
++            assign d_rs1v[gl] = d_rs1 == 5'd0 ? 32'd0 : rs1_r[gl];
++            assign d_rs2v[gl] = d_rs2 == 5'd0 ? 32'd0 : rs2_r[gl];
++        end
++    endgenerate
++
+ endmodule

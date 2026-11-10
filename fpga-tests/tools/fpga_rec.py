@@ -42,6 +42,7 @@ _task = None
 _count = 0
 
 
+
 def _dut_handle():
     h = cocotb.top
     for part in filter(None, DUT_PATH.split(".")):
@@ -56,39 +57,66 @@ def _bits(v) -> tuple[str, str]:
             "".join("1" if c in "xzuw-" else "0" for c in s))
 
 
+_h = None                             # (input handles, output handles, hex widths)
+
+
+def _handles():
+    global _h
+    if _h is None:
+        dut = _dut_handle()
+        ih = [getattr(dut, p["name"]) for p in INS]
+        oh = [getattr(dut, p["name"]) for p in OUTS]
+        for p, h in zip(INS + OUTS, ih + oh):
+            assert len(h) == p["width"], f"{p['name']}: sim width {len(h)}, ports.json {p['width']}"
+        nin = sum(p["width"] for p in INS) + len(SIDEBAND)
+        nout = sum(p["width"] for p in OUTS)
+        _h = (ih, oh, (nin + 3) // 4, (nout + 3) // 4)
+    return _h
+
+
+_race = False                         # the next edge is a clock-start edge
+
+
+def _log():
+    """Write one line: the DUT's inputs and outputs as they stand now."""
+    global _count, _race
+    if MAX_CYCLES and _count >= MAX_CYCLES:
+        return
+    ih, oh, wi, wo = _handles()
+    ib = "".join(_bits(h.value)[0] for h in ih) + "".join(str(side[k]) for k in SIDEBAND)
+    for k in SIDEBAND:
+        side[k] = 0
+    ov, om = zip(*(_bits(h.value) for h in oh))
+    om = "".join(om)
+    if _race:
+        # A test that starts the clock writes its inputs (reset, memory) in
+        # the same instant as the clock's first rising edge, so outputs that
+        # depend combinationally on those inputs were read before they had
+        # settled. The DUT's state after this edge is well defined (the
+        # inputs as logged); its outputs at this edge are not: don't check them.
+        om = "1" * len(om)
+        _race = False
+    _fh.write(f"{int(ib, 2):0{wi}x} {int(''.join(ov), 2):0{wo}x} {int(om, 2):0{wo}x}\n")
+    _count += 1
+
+
 async def _sampler(clk):
-    global _count
-    dut = _dut_handle()
-    ih = [getattr(dut, p["name"]) for p in INS]
-    oh = [getattr(dut, p["name"]) for p in OUTS]
-    for p, h in zip(INS + OUTS, ih + oh):
-        assert len(h) == p["width"], f"{p['name']}: sim width {len(h)}, ports.json {p['width']}"
-    nin = sum(p["width"] for p in INS) + len(SIDEBAND)
-    nout = sum(p["width"] for p in OUTS)
-    wi, wo = (nin + 3) // 4, (nout + 3) // 4
     while True:
         await RisingEdge(clk)
-        if MAX_CYCLES and _count >= MAX_CYCLES:
-            continue
-        ib = "".join(_bits(h.value)[0] for h in ih) + "".join(str(side[k]) for k in SIDEBAND)
-        for k in SIDEBAND:
-            side[k] = 0
-        ov, om = zip(*(_bits(h.value) for h in oh))
-        _fh.write(f"{int(ib, 2):0{wi}x} {int(''.join(ov), 2):0{wo}x} {int(''.join(om), 2):0{wo}x}\n")
-        _count += 1
+        _log()
 
 
 _orig_start = Clock.start
 
 
 def _start(self, *a, **kw):
-    global _fh, _task
-    t = _orig_start(self, *a, **kw)
+    global _fh, _task, _race
     if TRACE and (_task is None or _task.done()):
         if _fh is None:
             _fh = open(TRACE, "a")
+        _race = True
         _task = cocotb.start_soon(_sampler(self.signal))
-    return t
+    return _orig_start(self, *a, **kw)
 
 
 Clock.start = _start

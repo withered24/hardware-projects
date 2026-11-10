@@ -1,0 +1,26 @@
+--- riscv-core/rtl/regfile.sv
++++ patches/riscv/rtl/regfile.sv
+@@ -23,7 +23,11 @@
+     // write port
+     input  logic        rd_we,
+     input  logic [4:0]  rd_addr,
+-    input  logic [31:0] rd_data
++    input  logic [31:0] rd_data,
++
++    // FPGA replay only: zero every register at this edge (stands in for the
++    // testbench's backdoor clear in cosim.load_and_reset)
++    input  logic        rf_clear
+ );
+ 
+     logic [31:0] regs [31:0];
+@@ -38,7 +42,9 @@
+ `endif
+ 
+     always_ff @(posedge clk) begin
+-        if (rd_we && rd_addr != 5'd0)
++        if (rf_clear)
++            for (int r = 0; r < 32; r++) regs[r] <= 32'd0;
++        if (rd_we && rd_addr != 5'd0)        // after the clear, as in simulation
+             regs[rd_addr] <= rd_data;
+     end
+ 

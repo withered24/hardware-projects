@@ -1,0 +1,20 @@
+--- riscv-core/rtl/core.sv
++++ patches/riscv/rtl/core.sv
+@@ -62,6 +62,7 @@
+ ) (
+     input  logic        clk,
+     input  logic        rst,           // synchronous, active high
++    input  logic        rf_clear,      // FPGA replay only: see patches/riscv/rtl/regfile.sv
+ 
+     // instruction memory (registered read: address now, data next cycle)
+     output logic [31:0] imem_addr,
+@@ -231,7 +232,8 @@
+         .rs2_data (rf_rs2),
+         .rd_we    (w_rf_we),
+         .rd_addr  (w_rd),
+-        .rd_data  (w_wdata)
++        .rd_data  (w_wdata),
++        .rf_clear (rf_clear)
+     );
+ 
+     // Write-through bypass: WB writes the register file at the end of this

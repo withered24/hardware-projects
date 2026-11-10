@@ -3,3 +3,8 @@ sim_build/
 builds/
 results/raw/
 __pycache__/
+traces_*.log
+/*.log
+/*.time
+results/mock/
+results/*/sim/
